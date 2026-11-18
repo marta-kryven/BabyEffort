@@ -1,0 +1,141 @@
+---
+title: "Babies decide when to deploy effort -- Easy condition"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+source('~/Downloads/UfT_DEVELOPMENT/experimental_setup.R')
+```
+
+Model parameters
+
+```{r variables, include=TRUE}
+
+# how much force a child can apply - and is willing to apply
+# if the required force is beyond this threshold, less and less force will be applied
+motivation_threshold = 8 
+
+# assume baby estimates the number of required attempts to be sufficient 
+# to succeed with this probability
+threshold_probability_of_success = 0.8 
+
+# difficulty - probability of success in one attempt 
+# given by Beta distribution with an uninformative prior
+baby_success <- list(a=1, b=1) 
+adult_success <- list(a=1, b=1)
+
+surprise_treshold = 1.5 # changing this has an effect on whether the force 
+                        # peaks during the first trial, or later
+```
+
+## Trial 1 
+
+Adult succeeds, baby sets a prior over task difficulty
+
+```{r trial1_easy_adult, echo = FALSE}
+
+r = observe_adult(TRUE, adult_success, baby_success)
+adult_success = r$a
+baby_success = r$b # first time we observe adult, we set prior over baby's difficulty
+plot_difficulty(difficulty, adult_success)
+
+```
+
+
+Baby pulls, but fails 
+
+```{r trial1_easy_baby, echo = FALSE}
+
+render_baby_attempt = function(baby_success, baby_outcome = FALSE, nudge_attempts = 0) {
+  
+  required_attempts = force_required(expectation(baby_success)) 
+  force <- motivation_sigmoid(required_attempts, motivation_threshold)*required_attempts
+  
+  result = data.frame()
+  attempt = 0
+  i = 1
+  surprise = 100 # select an arbitrary large number
+
+  while (  # attempt < force |  
+           abs(surprise) > surprise_treshold | 
+           nudge_attempts > 0) { 
+    
+    expected_adult_outcome = prob_of_success(required_attempts, adult_success)
+    surprise = quantify_surprise(prob_of_success(force, baby_success), baby_outcome)
+    
+    baby_success = update_skill(baby_outcome, baby_success) # update baby's belief about own ability to solve this task
+
+    a = affect(expected_adult_outcome, baby_outcome)
+    help = request_help(adult_success, baby_success, k_helpseeking_willingness)
+    
+    result <- rbind(result, data.frame(pull = i, force = force, affect = a, help = help, surprise = surprise))
+    attempt = force # attempt+force
+     
+    required_attempts = force_required(expectation(baby_success)) 
+    force <- motivation_sigmoid(required_attempts, motivation_threshold)*required_attempts
+    i = i+1
+    
+    nudge_attempts = nudge_attempts-1
+  }
+
+  # plot attempt number against result
+  p1 <- ggplot(result, aes(x = pull, y = force)) + geom_line() + geom_point() + xlab("Pull") + ylab("Force") + theme_minimal()
+  p2 <- ggplot(result, aes(x = pull, y = affect)) + geom_line() + geom_point() + xlab("Pull") + ylab("Affect") + theme_minimal()
+  p3 <- ggplot(result, aes(x = pull, y = help)) + geom_line() + geom_point() + xlab("Pull") + ylab("Help request") + theme_minimal()
+  p4 = plot_difficulty(difficulty, baby_success, "Baby")
+  p5 = ggplot(result, aes(x = pull, y = surprise)) + geom_line() + geom_point() + xlab("Pull") + ylab("Surprise") + theme_minimal()
+  grid.arrange(p1, p2, p3, p4, p5, ncol = 3, nrow = 2)
+  return(baby_success)
+}
+
+baby_success = render_baby_attempt(baby_success)
+
+```
+
+## Trial 2 
+
+Adult succeeds
+
+```{r trial2_easy_adult, echo = FALSE}
+
+r = observe_adult(TRUE, adult_success, baby_success)
+adult_success = r$a
+#baby_success = r$b
+plot_difficulty(difficulty, adult_success)
+
+```
+
+Baby pulls, but fails
+
+```{r trial2_easy_baby, echo = FALSE}
+baby_success = render_baby_attempt(baby_success, FALSE, 3)
+```
+
+## Trial 3 
+
+Adult succeeds
+
+```{r trial3_easy_adult, echo = FALSE}
+
+r = observe_adult(TRUE, adult_success, baby_success)
+adult_success = r$a
+#baby_success = r$b
+plot_difficulty(difficulty, adult_success)
+
+```
+
+Baby pulls, but fails
+
+```{r trial3_easy_baby, echo = FALSE}
+baby_success = render_baby_attempt(baby_success, FALSE, 2)
+```
+
+## Recovery trial
+
+```{r recovery, echo = FALSE}
+baby_success = render_baby_attempt(baby_success, TRUE, 5)
+```

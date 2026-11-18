@@ -1,0 +1,173 @@
+---
+title: "Baby effort - modelling assumptions"
+output: html_document
+---
+
+```{r setup}, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+source('~/Downloads/UfT_DEVELOPMENT/R_code_baby_effort/experimental_setup.R')
+
+# overrride variables
+pseudocount = 0 # pseudocount for modifying counts of success and failures used to estimate probability
+
+# how much force can a child apply - 
+# if the required force is beyond this threshold, less and less force will be applied
+motivation_threshold = 12 
+
+# assume baby estimates the number of required attempts to be such as to succeed with this probability
+# should be ok to fit to population
+threshold_probability_of_success = 0.8 
+
+# this is a coefficient that converts estimated number of attempts to cumulative force
+# should be ok to fit to population
+k = 1
+
+# scales the difference between own and adult skill when deciding to ask for help 
+# reasonable interval is [0.5, 2]
+k_helpseeking_willingness = 1
+
+# skill/difficulty - probability of success in one attempt from Beta distribution -- uninformative prior
+baby_success <- list(a=1, b=1) 
+adult_success <- list(a=1, b=1)
+
+
+
+```
+## Force model
+
+Assuming a fixed amount of force per attempt, estimate the number of attempts to success 
+
+threshold_probability_of_success = (0.8 by default) assume this probability of success is sufficient, we do not want to try too hard
+
+force_required(prob_of_success_per_attempt) computes the number of unit attempts to achieve success using geometric distribution, based on probability of success learned from observations (e.g. adult demonstration) 
+
+```{r definitions, echo = FALSE}
+
+x = seq(0.1, 0.9, by = 0.05)
+ggplot(data = data.frame(x=x, y = force_required(x)), aes(x = x, y = y)) +
+  geom_line(color = "blue", linetype = "solid") +
+  ggtitle("Force model") +
+  xlab("Probability of success per attempt") +
+  ylab("Number of attempts to success") +
+  theme_minimal()
+```
+
+
+## Motivation model
+
+Motivation scales the required force by a sigmoid function, such that the generated force does not exceed maximal motivation
+
+``` {r motivation, echo = FALSE}
+# motivation model
+x =  seq(0, 20, by = 0.1)
+ggplot(data = data.frame(x=x, y = motivation_sigmoid(x)), aes(x = x, y = y)) +
+  geom_line(color = "blue", linetype = "solid") +
+  ggtitle("Motivation model") +
+  xlab("Required force") +
+  ylab("Motivated force") +
+  theme_minimal() + coord_fixed(ratio = 5)
+```
+
+## Affect model
+
+Affect is proportional to information theoretic surprise, given expected probabilit of success, and the observed outcome
+
+```{r affect, echo = FALSE}
+
+x = seq(0.1, 0.9, by = 0.05)
+
+ggplot(data.frame(x = x, y_false = affect(x, FALSE), y_true = affect(x, TRUE)), aes(x = x)) +
+  geom_line(aes(y = y_false, color = "Failed"), linetype = "solid") +
+  geom_line(aes(y = y_true, color = "Succeeded"), linetype = "solid") +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "black") +
+  ggtitle("Affect Model") +
+  xlab("Expected Probability of Success") +
+  ylab("Affect") +
+  scale_color_manual(name = "Outcome", values = c("Failed" = "blue", "Succeeded" = "red")) +
+  theme_minimal() + coord_fixed(ratio = 0.3)
+
+```
+
+## Deciding if to request help
+
+```{r help}
+
+adult <- list(a=2, b=1)
+
+df = data.frame(attempt = 1, help = request_help(adult, list(a=1, b=1), k_helpseeking_willingness)   ) 
+for (attempt in 2:10) {
+  df = rbind(df,
+    data.frame(attempt, help = request_help(adult, list(a=1, b=attempt), k_helpseeking_willingness)   ) 
+  )
+}
+  
+ggplot(df, aes(x = attempt, y = help)) + geom_line() + ggtitle("Requesting help, Trial 1, Easy condition") + xlab("Failed attempt") + 
+  ylab("Probability of hHelp request") + theme_minimal() 
+
+```
+
+## A prior over task difficulty, and own success
+
+Assume uninformative prior, which will be updated  from observations
+
+1. A prior over task difficulty, defined as the adult's probability of success in this task per attempt.
+Assume adult applies a constant amount of force per attempt.
+This distribution learns about the feasibility of tasks in the experiment.
+
+2. A prior distribution over own probability of success, given difficulty. 
+This distribution learns own skill
+
+```{r distributions}
+# assume uninformative priors, to be fitted to individuals
+plot_difficulty(difficulty, baby_success, "Prior")
+```
+
+## Observing Adult's attempt, assume it is a success
+
+Baby observes an adult attempting the task, and updates the distribution over task difficulty 
+ 
+For example, after observing one failed attempt from an adult
+
+```{r observation adult 1}
+adult_outcome = TRUE
+r = observe_adult(adult_outcome, adult_success, baby_success)
+adult_success = r$a
+baby_success = r$b
+plot_difficulty(difficulty, adult_success, "Everyone")
+```
+
+
+## Baby estimates force needed for the task
+
+1. compute expected force needed for success, modeled as a cumulative number of attempts for a good chance of success,
+   and adjust this force by motivation -- how much force baby is willing to spend
+
+## Baby generates attempt and observes outcome
+1. compute expected affect from given the resulting force, assuming adult skill model
+
+2. Update posterior belief over own skill
+
+3. Decide whether to request help
+
+
+```{r observation baby 1}
+
+required_attempts = force_required(expectation(baby_success)) 
+force <- motivation_sigmoid(required_attempts, motivation_threshold)*required_attempts
+
+expected_adult_outcome = prob_of_success(force, adult_success)
+
+baby_outcome = FALSE  # observe outcome
+baby_success = update_skill(baby_outcome, baby_success) # update baby's belief about own ability to solve this task
+plot_difficulty(difficulty, baby_success, "Baby")
+
+a = affect(expected_adult_outcome, baby_outcome)
+help = request_help(adult_success, baby_success, k_helpseeking_willingness)
+
+print(paste("force:", force, "affect: ", a, "help request probability:", help))
+```
+
+
+
+
+
